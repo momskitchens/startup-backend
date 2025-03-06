@@ -1,0 +1,9 @@
+Passero One
+255, 144, 0, 1 
+
+flame : 255, 116, 0, 1
+
+razorpay
+
+key id : rzp_test_iVk7JJbin1Tdl7
+key secret : muYYqCxOqi6Sz1ugQfx0yBFA
