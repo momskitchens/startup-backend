@@ -10,6 +10,7 @@ const addressSchema = new Schema({
     active: {type:Boolean,default: false }
   });
 
+
 const userSchema = new Schema(
     {
        username:{
@@ -31,6 +32,8 @@ const userSchema = new Schema(
         timeStamps: true
     }
 )
+
+
 
 userSchema.methods.generateAccessToken = function(){
     return jwt.sign(

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {registerUser,loginUser,logoutUser,getCurrentUser,RefreshAccessToken,addAddress,selectAddress,deleteAddress,seeOrders,seePayments} from  "../controllers/user.controller.js"
+import {registerUser,loginUser,verifyOtp,logoutUser,getCurrentUser,RefreshAccessToken,addAddress,selectAddress,deleteAddress,seeOrders,seePayments} from  "../controllers/user.controller.js"
 import { verifyJWT } from "../middlewares/userAuth.middleware.js";
 
 const userRouter = Router();
@@ -7,6 +7,8 @@ const userRouter = Router();
 userRouter.route("/register").post(registerUser)
 
 userRouter.route("/login").post(loginUser)
+
+userRouter.route("/verify-otp").post(verifyOtp)
 
 //secured Routes
 

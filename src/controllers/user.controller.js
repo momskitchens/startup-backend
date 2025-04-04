@@ -4,6 +4,9 @@ import {apiResponse} from "../utils/apiResponse.js"
 import { User } from "../models/user.model.js";
 import  jwt  from "jsonwebtoken";
 import mongoose from "mongoose";
+import { Otp } from "../models/otp.model.js";
+import { sendSms } from "../config/msgService/twilio.js";
+import { Mom } from "../models/mom.model.js";
 
 const generateAccessTokenAndRefreshToken = async(userId)=>{
         
@@ -78,7 +81,7 @@ const registerUser = asyncHandler(async(req,res)=>{
     return res
     .status(201)
     .json(
-        new apiResponse(200,{user : createduser },"User Registered  Successfully! ")
+        new apiResponse(200,'',"User Registered  Successfully! ")
     )
 
 })
@@ -91,52 +94,112 @@ const loginUser = asyncHandler(async(req,res)=>{
         throw new apiError(400,"Please enter the number ")
     }
 
-    // const pattern = /^\d{10}$/
+    const pattern = /^\d{10}$/
 
-    // if(!pattern.test(number)){
-    //     throw new apiError(400,"Number must be a valid-10 digit number")
-    // }
+    if(!pattern.test(number)){
+        throw new apiError(400,"Number must be a valid-10 digit number")
+    }
 
-     console.log(number)
+    const momExists = await Mom.findOne({number})
+    if(momExists){
+        throw new apiError(400,"This number is already registered as a mom")
+    }
+
+   const otpExits = await Otp.findOne({phone : number})
+
+   if(otpExits){
+     throw new apiError(400,"OTP is already sent to this number")
+   }
+
     const userExists = await User.findOne({number})
     if(!userExists){
         throw new apiError(404,"User not found")
     }
 
-    const {accessToken , refreshToken} = await generateAccessTokenAndRefreshToken(userExists._id)
+    const code = Math.floor(100000 + Math.random() * 900000)
 
-    const loggedUser = await User.findById(userExists._id).select(" -refreshToken ")
+    const sendmsg = await sendSms({number,code})
 
-    const Aoptions = {
-        httpOnly : true,
-        secure : false,
-        maxAge : parseDuration(process.env.ACCESS_TOKEN_EXPIRY),
-        path : '/',
-        sameSite : "Lax"
+    if(!sendmsg){
+      throw new apiError(500,"Something went wrong while sending OTP")
     }
-    const Roptions = {
-        httpOnly : true,
-        secure : false,
-        maxAge : parseDuration(process.env.REFRESH_TOKEN_EXPIRY),
-        path : '/',
-        sameSite : "Lax"
+
+    const otpSchema = await Otp.create({
+      phone : number,
+      code
+    })
+
+    if(!otpSchema){
+      throw new apiError(500,"Something went wrong while creating OTP")
     }
 
     return res
     .status(200)
-    .cookie("AccessToken",accessToken,Aoptions)
-    .cookie("RefreshToken",refreshToken,Roptions)
     .json(
-        new apiResponse(
-            200,
-            {
-                user : loggedUser,
-            },
-            "User logged in Successfully"
-        )
+      new apiResponse(200,'',"OTP sent successfully")
     )
 })
 
+const verifyOtp = asyncHandler(async(req,res)=>{
+
+  const {number,code} = req.body
+
+  if(!number || !code){
+    throw new apiError(400,"Number and code are required")
+  }
+
+  const user = await User.findOne({number})
+
+  if(!user){
+    throw new apiError(404,"User not found " )
+  }
+
+  const otp = await Otp.findOne({phone : number})
+
+  if(!otp){
+    throw new apiError(404,"No OTP found for this number or OTP is expired")
+  }
+
+  if(otp.code != code){
+    throw new apiError(400,"Invalid OTP")
+  }
+
+
+  const {accessToken , refreshToken} = await generateAccessTokenAndRefreshToken(user._id)
+
+  const loggedUser = await User.findById(user._id).select(" -refreshToken ")
+
+  const Aoptions = {
+      httpOnly : true,
+      secure : false,
+      maxAge : parseDuration(process.env.ACCESS_TOKEN_EXPIRY),
+      path : '/',
+      sameSite : "Lax"
+  }
+  const Roptions = {
+      httpOnly : true,
+      secure : false,
+      maxAge : parseDuration(process.env.REFRESH_TOKEN_EXPIRY),
+      path : '/',
+      sameSite : "Lax"
+  }
+
+  return res
+  .status(200)
+  .cookie("AccessToken",accessToken,Aoptions)
+  .cookie("RefreshToken",refreshToken,Roptions)
+  .json(
+      new apiResponse(
+          200,
+          {
+              user : loggedUser,
+          },
+          "User logged in Successfully"
+      )
+  )
+
+
+})
 
 const logoutUser = asyncHandler(async(req,res)=>{
 
@@ -171,26 +234,29 @@ const logoutUser = asyncHandler(async(req,res)=>{
 })
 
 const RefreshAccessToken = asyncHandler(async(req,res)=>{
-    const incomingRefreshToken = req.cookie.refreshToken || req.body.refreshToken
+    const incomingRefreshToken = req.cookies?.RefreshToken || req.body?.RefreshToken
 
     if(!incomingRefreshToken){
         throw new apiError(401,"Unauthorized Request")
     }
 
     try{
-        decodeToken = jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
+        const decodeToken = jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
 
         const user = await User.findById(decodeToken?._id)
+
 
         if(!user){
             throw new apiError(401,"Invalid user Token");
         }
 
-        if(user?.refreshToken == incomingRefreshToken){
+        if(user?.refreshToken !== incomingRefreshToken){
             throw new apiError(401,"Refresh Token is expired")
         }
 
-        const {newaccessToken,newrefreshToken} = generateAccessTokenAndRefreshToken(user._id)
+        const { accessToken: newaccessToken, refreshToken: newrefreshToken } = await generateAccessTokenAndRefreshToken(user._id);
+
+  
 
         const Aoptions = {
           httpOnly : true,
@@ -209,9 +275,9 @@ const RefreshAccessToken = asyncHandler(async(req,res)=>{
 
         return res
         .status(200)
-        .cookie("AcessToken",newaccessToken,Aoptions)
+        .cookie("AccessToken",newaccessToken,Aoptions)
         .cookie("RefreshToken",newrefreshToken,Roptions)
-        .josn(
+        .json(
             new apiResponse(
                 200,
                 {
@@ -488,4 +554,4 @@ const seePayments = asyncHandler( async(req,res)=>{
 
 
 
-export {loginUser,registerUser,logoutUser,addAddress,selectAddress,deleteAddress,seeOrders,seePayments,RefreshAccessToken,getCurrentUser}
+export {loginUser,registerUser,logoutUser,verifyOtp,addAddress,selectAddress,deleteAddress,seeOrders,seePayments,RefreshAccessToken,getCurrentUser}
